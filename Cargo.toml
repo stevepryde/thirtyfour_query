@@ -1,0 +1,19 @@
+[package]
+name = "thirtyfour_query"
+version = "0.1.0"
+authors = ["Steve Pryde <steve@stevepryde.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "Advanced element query interface for thirtyfour crate"
+homepage = "https://github.com/stevepryde/thirtyfour_query"
+repository = "https://github.com/stevepryde/thirtyfour_query"
+documentation = "https://docs.rs/thirtyfour_query"
+
+readme = "README.md"
+keywords = ["selenium", "webdriver", "chromedriver", "geckodriver", "automation"]
+categories = ["api-bindings", "development-tools::testing", "web-programming::http-client"]
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
