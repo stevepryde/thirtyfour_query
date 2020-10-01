@@ -17,7 +17,7 @@ async fn main() -> WebDriverResult<()> {
     let mut driver = WebDriver::new("http://localhost:4444", &caps).await?;
 
     // Disable implicit timeout in order to use new query interface.
-    driver.implicitly_wait(Duration::new(0, 0)).await?;
+    driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
 
     // Set default ElementPoller strategy. This will be inherited by all future queries unless
     // specifically overridden.
@@ -33,7 +33,7 @@ async fn main() -> WebDriverResult<()> {
     // Each selector will be executed once per poll iteration.
     //The first element to match will be returned.
     let elem_text =
-        elem_form.query(By::Css("thiswont.match")).or_by(By::Id("searchInput")).first().await?;
+        elem_form.query(By::Css("thiswont.match")).or(By::Id("searchInput")).first().await?;
 
     // Type in the search terms.
     elem_text.send_keys("selenium").await?;

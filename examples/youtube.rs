@@ -18,7 +18,7 @@ async fn main() -> WebDriverResult<()> {
     let mut driver = WebDriver::new("http://localhost:4444", &caps).await?;
 
     // Disable implicit timeout in order to use new query interface.
-    driver.implicitly_wait(Duration::new(0, 0)).await?;
+    driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
 
     // Set default ElementPoller strategy. This will be inherited by all future queries unless
     // specifically overridden.
@@ -33,6 +33,7 @@ async fn main() -> WebDriverResult<()> {
     // Type in the search terms.
     elem_search.send_keys("rick astley never gonna give you up").await?;
     elem_search.send_keys(Keys::Enter).await?;
+
     // Find the first video in the list matching the desired title and click it.
     let elem_title = driver
         .query(By::Css(
@@ -42,11 +43,15 @@ async fn main() -> WebDriverResult<()> {
         .first()
         .await?;
 
-    // TODO: this is broken - need to investigate.
-    elem_title.query(By::XPath("..")).first().await?.click().await?;
+    // Click the parent element.
+    elem_title.query(By::XPath("./..")).first().await?.click().await?;
 
     // Make it full-screen
-    driver.query(By::ClassName("ytp-fullscreen-button")).first().await?.click().await?;
+    let elem_fullscreen_button =
+        driver.query(By::Css("button.ytp-fullscreen-button")).first().await?;
+    elem_fullscreen_button.scroll_into_view().await?;
+    delay_for(Duration::new(1, 0)).await;
+    elem_fullscreen_button.click().await?;
 
     // Wait for it to finish. We can find the exact number of seconds in the DOM.
     let progress_bar = driver
