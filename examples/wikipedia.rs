@@ -4,7 +4,7 @@
 //!
 //! Run as follows:
 //!
-//!     cargo run --example tokio_async
+//!     cargo run --example wikipedia
 
 use thirtyfour::prelude::*;
 use thirtyfour_query::query::{ElementPoller, ElementQueryable};
@@ -14,7 +14,7 @@ use tokio::time::Duration;
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
     let caps = DesiredCapabilities::chrome();
-    let mut driver = WebDriver::new("http://localhost:4444/wd/hub", &caps).await?;
+    let mut driver = WebDriver::new("http://localhost:4444", &caps).await?;
 
     // Disable implicit timeout in order to use new query interface.
     driver.implicitly_wait(Duration::new(0, 0)).await?;

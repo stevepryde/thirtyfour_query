@@ -1,3 +1,5 @@
+#![feature(async_closure)]
+
 pub mod query;
 
 #[cfg(test)]
