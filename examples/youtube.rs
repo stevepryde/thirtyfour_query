@@ -12,8 +12,11 @@ use thirtyfour::prelude::*;
 use thirtyfour_query::query::{ElementPoller, ElementQueryable};
 use tokio;
 use tokio::time::{delay_for, Duration};
+
 #[tokio::main]
-async fn main() -> WebDriverResult<()> {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+
     let caps = DesiredCapabilities::chrome();
     let mut driver = WebDriver::new("http://localhost:4444", &caps).await?;
 
@@ -23,7 +26,8 @@ async fn main() -> WebDriverResult<()> {
     // Set default ElementPoller strategy. This will be inherited by all future queries unless
     // specifically overridden.
     // The following will wait up to 20 seconds, polling in 0.5 second intervals.
-    let poller = ElementPoller::Time(Duration::new(20, 0), Duration::from_millis(500));
+    let poller =
+        ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
     driver.config_mut().set("ElementPoller", poller)?;
 
     // Navigate to https://youtube.com

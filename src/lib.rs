@@ -36,7 +36,7 @@
 //! // Disable implicit timeout in order to use new query interface.
 //! driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
 //!
-//! let poller = ElementPoller::Time(Duration::new(20, 0), Duration::from_millis(500));
+//! let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
 //! driver.config_mut().set("ElementPoller", poller)?;
 //! ```
 //!

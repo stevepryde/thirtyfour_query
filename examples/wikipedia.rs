@@ -12,7 +12,9 @@ use tokio;
 use tokio::time::Duration;
 
 #[tokio::main]
-async fn main() -> WebDriverResult<()> {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+
     let caps = DesiredCapabilities::chrome();
     let mut driver = WebDriver::new("http://localhost:4444", &caps).await?;
 
@@ -22,16 +24,18 @@ async fn main() -> WebDriverResult<()> {
     // Set default ElementPoller strategy. This will be inherited by all future queries unless
     // specifically overridden.
     // The following will wait up to 20 seconds, polling in 0.5 second intervals.
-    let poller = ElementPoller::Time(Duration::new(20, 0), Duration::from_millis(500));
+    let poller =
+        ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(1000));
     driver.config_mut().set("ElementPoller", poller)?;
 
     // Navigate to https://wikipedia.org.
     driver.get("https://wikipedia.org").await?;
+
     let elem_form = driver.query(By::Id("search-form")).first().await?;
 
     // Find element from element using multiple selectors.
     // Each selector will be executed once per poll iteration.
-    //The first element to match will be returned.
+    // The first element to match will be returned.
     let elem_text =
         elem_form.query(By::Css("thiswont.match")).or(By::Id("searchInput")).first().await?;
 
