@@ -135,19 +135,24 @@ impl<'a> ElementQuery<'a> {
         }
     }
 
+    /// Use the specified ElementPoller for this ElementQuery.
+    /// This will not affect the default ElementPoller used for other queries.
+    pub fn with_poller(mut self, poller: ElementPoller) -> Self {
+        self.poller = poller;
+        self
+    }
+
     /// Force this ElementQuery to wait for the specified timeout, polling once
     /// after each interval. This will override the poller for this
     /// ElementQuery only.
-    pub fn wait(mut self, timeout: Duration, interval: Duration) -> Self {
-        self.poller = ElementPoller::TimeoutWithInterval(timeout, interval);
-        self
+    pub fn wait(self, timeout: Duration, interval: Duration) -> Self {
+        self.with_poller(ElementPoller::TimeoutWithInterval(timeout, interval))
     }
 
     /// Force this ElementQuery to not wait for the specified condition(s).
     /// This will override the poller for this ElementQuery only.
-    pub fn nowait(mut self) -> Self {
-        self.poller = ElementPoller::NoWait;
-        self
+    pub fn nowait(self) -> Self {
+        self.with_poller(ElementPoller::NoWait)
     }
 
     /// Add the specified selector to this ElementQuery. Callers should use

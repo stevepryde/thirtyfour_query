@@ -3,13 +3,21 @@
 
 Advanced element query interface for the thirtyfour crate.
 
-## Experimental 
-
-This crate is experimental and expected to have breaking changes often.
-
 ## Usage
 
-With the new query interface you can do things like:
+First, set the default polling behaviour:
+```rust 
+// Disable implicit timeout in order to use new query interface.
+driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
+
+let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
+driver.config_mut().set("ElementPoller", poller)?;
+```
+
+Other ElementPoller options are also available, such as NoWait and NumTriesWithInterval.
+These can be overridden on a per-query basis as needed.
+
+Now, using the query interface you can do things like:
 
 ```rust
 let elem_text = 
@@ -29,17 +37,6 @@ To fetch all matching elements instead of just the first one, simply change firs
 and you'll get a Vec instead. This will never return an empty Vec. If either first() or all() 
 don't match anything, you'll get `WebDriverError::NoSuchElement` instead. 
 The error message will show the selectors used.
-
-To set up default polling for all elements, do this:
-```rust 
-// Disable implicit timeout in order to use new query interface.
-driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
-
-let poller = ElementPoller::Time(Duration::new(20, 0), Duration::from_millis(500));
-driver.config_mut().set("ElementPoller", poller)?;
-```
-
-Other ElementPoller options are also available, such as NoWait and NumTries.
 
 ## LICENSE
 

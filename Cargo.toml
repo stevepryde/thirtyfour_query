@@ -1,10 +1,10 @@
 [package]
 name = "thirtyfour_query"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Steve Pryde <steve@stevepryde.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
-description = "Advanced element query interface for thirtyfour crate"
+description = "Advanced element query interface for the thirtyfour crate"
 homepage = "https://github.com/stevepryde/thirtyfour_query"
 repository = "https://github.com/stevepryde/thirtyfour_query"
 documentation = "https://docs.rs/thirtyfour_query"

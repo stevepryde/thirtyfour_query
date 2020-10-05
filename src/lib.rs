@@ -3,14 +3,21 @@
 //!
 //! See examples for more details.
 //!
-//! ## Experimental
-//!
-//! This crate is still experimental and expected to have breaking changes often, however
-//! the basic interface is working.
-//!
 //! ## Usage
 //!
-//! With the new query interface you can do things like:
+//! First, set the default polling behaviour:
+//! ```no_run
+//! // Disable implicit timeout in order to use new query interface.
+//! driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
+//!
+//! let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
+//! driver.config_mut().set("ElementPoller", poller)?;
+//! ```
+//!
+//! Other ElementPoller options are also available, such as NoWait and NumTriesWithInterval.
+//! These can be overridden on a per-query basis as needed.
+//!
+//! Now, using the query interface you can do things like:
 //!
 //! ```no_run
 //! let elem_text =
@@ -31,15 +38,4 @@
 //! don't match anything, you'll get `WebDriverError::NoSuchElement` instead.
 //! The error message will show the selectors used.
 //!
-//! To set up default polling for all elements, do this:
-//! ```no_run
-//! // Disable implicit timeout in order to use new query interface.
-//! driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
-//!
-//! let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
-//! driver.config_mut().set("ElementPoller", poller)?;
-//! ```
-//!
-//! Other ElementPoller options are also available, such as NoWait and NumTries.
-
 pub mod query;
