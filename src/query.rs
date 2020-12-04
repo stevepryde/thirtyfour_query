@@ -169,9 +169,16 @@ impl<'a> ElementQuery<'a> {
         self.add_selector(ElementSelector::new(by))
     }
 
+    /// Return true if an element matches any selector, otherwise false.
+    /// This method will not wait, and will not mutate the underlying ElementQuery.
+    pub async fn exists(&self) -> WebDriverResult<bool> {
+        let elements = self.run_poller_with_options(None, None, 0).await?;
+        Ok(!elements.is_empty())
+    }
+
     /// Return only the first WebElement that matches any selector (including all of
     /// the filters for that selector).
-    pub async fn first(mut self) -> WebDriverResult<WebElement<'a>> {
+    pub async fn first(&self) -> WebDriverResult<WebElement<'a>> {
         let mut elements = self.run_poller().await?;
 
         if elements.is_empty() {
@@ -183,12 +190,12 @@ impl<'a> ElementQuery<'a> {
 
     /// Return all WebElements that match any one selector (including all of the
     /// filters for that selector).
-    pub async fn all(mut self) -> WebDriverResult<Vec<WebElement<'a>>> {
+    pub async fn all(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
         self.run_poller().await
     }
 
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
-    async fn run_poller(&mut self) -> WebDriverResult<Vec<WebElement<'a>>> {
+    async fn run_poller(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
         match self.poller {
             ElementPoller::NoWait => self.run_poller_with_options(None, None, 0).await,
             ElementPoller::TimeoutWithInterval(timeout, interval) => {
@@ -228,7 +235,7 @@ impl<'a> ElementQuery<'a> {
     /// Run the specified poller with the corresponding timeout, interval
     /// and num_tries parameters.
     async fn run_poller_with_options(
-        &mut self,
+        &self,
         timeout: Option<Duration>,
         interval: Option<Duration>,
         min_tries: u32,
