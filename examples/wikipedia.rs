@@ -7,7 +7,7 @@
 //!     cargo run --example wikipedia
 
 use thirtyfour::prelude::*;
-use thirtyfour_query::query::{ElementPoller, ElementQueryable};
+use thirtyfour_query::{ElementPoller, ElementQueryable};
 use tokio;
 use tokio::time::Duration;
 

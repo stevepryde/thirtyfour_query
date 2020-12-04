@@ -119,6 +119,32 @@ pub enum ElementQuerySource<'a> {
 
 /// High-level interface for performing powerful element queries using a
 /// builder pattern.
+///
+/// # Example:
+/// ```rust
+/// # use thirtyfour::prelude::*;
+/// # use thirtyfour::support::block_on;
+/// # use thirtyfour_query::{ElementPoller, ElementQueryable};
+/// # use std::time::Duration;
+/// #
+/// # fn main() -> WebDriverResult<()> {
+/// #     block_on(async {
+/// #         let caps = DesiredCapabilities::chrome();
+/// #         let mut driver = WebDriver::new("http://localhost:4444/wd/hub", &caps).await?;
+/// // Disable implicit timeout in order to use new query interface.
+/// driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
+///
+/// let poller = ElementPoller::TimeoutWithInterval(Duration::new(10, 0), Duration::from_millis(500));
+/// driver.config_mut().set("ElementPoller", poller)?;
+///
+/// driver.get("http://webappdemo").await?;
+///
+/// let elem = driver.query(By::Id("button1")).first().await?;
+/// #         assert_eq!(elem.tag_name().await?, "button");
+/// #         Ok(())
+/// #     })
+/// # }
+/// ```
 pub struct ElementQuery<'a> {
     source: ElementQuerySource<'a>,
     poller: ElementPoller,
@@ -190,8 +216,24 @@ impl<'a> ElementQuery<'a> {
 
     /// Return all WebElements that match any one selector (including all of the
     /// filters for that selector).
+    ///
+    /// Returns an empty Vec if no elements match.
     pub async fn all(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
         self.run_poller().await
+    }
+
+    /// Return all WebElements that match any one selector (including all of the
+    /// filters for that selector).
+    ///
+    /// Returns Err(WebDriverError::NoSuchElement) if no elements match.
+    pub async fn all_required(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
+        let elements = self.run_poller().await?;
+
+        if elements.is_empty() {
+            Err(no_such_element(&self.selectors))
+        } else {
+            Ok(elements)
+        }
     }
 
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
