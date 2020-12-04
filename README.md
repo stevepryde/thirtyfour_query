@@ -34,9 +34,7 @@ driver.query(By::Css("thiswont.match")).with_text("testing")
 ```
 
 To fetch all matching elements instead of just the first one, simply change first() to all() 
-and you'll get a Vec instead. This will never return an empty Vec. If either first() or all() 
-don't match anything, you'll get `WebDriverError::NoSuchElement` instead. 
-The error message will show the selectors used.
+and you'll get a Vec instead.
 
 ## LICENSE
 
