@@ -4,6 +4,7 @@ use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::mem;
 use std::pin::Pin;
+use std::sync::Arc;
 use stringmatch::Needle;
 use thirtyfour::error::{WebDriverError, WebDriverErrorInfo};
 use thirtyfour::prelude::{WebDriver, WebDriverResult};
@@ -53,8 +54,12 @@ pub enum ElementPoller {
 }
 
 /// Function signature for element filters.
-type ElementFilter =
-    Box<dyn for<'a> Fn(&'a WebElement<'a>) -> Pin<Box<dyn Future<Output = bool> + 'a>>>;
+type ElementFilter = Box<
+    dyn for<'a> Fn(&'a WebElement<'a>) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>
+        + Send
+        + Sync
+        + 'static,
+>;
 
 /// An ElementSelector contains a selector method (By) as well as zero or more filters.
 /// The filters will be applied to any elements matched by the selector.
@@ -68,6 +73,10 @@ pub struct ElementSelector<'a> {
 }
 
 impl<'a> ElementSelector<'a> {
+    //
+    // Constructor
+    //
+
     pub fn new(by: By<'a>) -> Self {
         Self {
             single: false,
@@ -75,6 +84,10 @@ impl<'a> ElementSelector<'a> {
             filters: Vec::new(),
         }
     }
+
+    //
+    // Configurator
+    //
 
     /// Call `set_single()` to tell this selector to use find_element() rather than
     /// find_elements(). This can be slightly faster but only really makes sense if
@@ -88,6 +101,10 @@ impl<'a> ElementSelector<'a> {
     pub fn add_filter(&mut self, f: ElementFilter) {
         self.filters.push(f);
     }
+
+    //
+    // Runner
+    //
 
     /// Run all filters for this selector on the specified WebElement vec.
     pub async fn run_filters<'b>(&self, mut elements: Vec<WebElement<'b>>) -> Vec<WebElement<'b>> {
@@ -146,20 +163,28 @@ pub enum ElementQuerySource<'a> {
 /// # }
 /// ```
 pub struct ElementQuery<'a> {
-    source: ElementQuerySource<'a>,
+    source: Arc<ElementQuerySource<'a>>,
     poller: ElementPoller,
     selectors: Vec<ElementSelector<'a>>,
 }
 
 impl<'a> ElementQuery<'a> {
+    //
+    // Constructor
+    //
+
     pub fn new(source: ElementQuerySource<'a>, poller: ElementPoller, by: By<'a>) -> Self {
         let selector = ElementSelector::new(by.clone());
         Self {
-            source,
+            source: Arc::new(source),
             poller,
             selectors: vec![selector],
         }
     }
+
+    //
+    // Poller / Waiter
+    //
 
     /// Use the specified ElementPoller for this ElementQuery.
     /// This will not affect the default ElementPoller used for other queries.
@@ -181,6 +206,10 @@ impl<'a> ElementQuery<'a> {
         self.with_poller(ElementPoller::NoWait)
     }
 
+    //
+    // Selectors
+    //
+
     /// Add the specified selector to this ElementQuery. Callers should use
     /// the `or()` method instead.
     fn add_selector(mut self, selector: ElementSelector<'a>) -> Self {
@@ -195,10 +224,14 @@ impl<'a> ElementQuery<'a> {
         self.add_selector(ElementSelector::new(by))
     }
 
+    //
+    // Retrivers
+    //
+
     /// Return true if an element matches any selector, otherwise false.
     /// This method will not wait, and will not mutate the underlying ElementQuery.
     pub async fn exists(&self) -> WebDriverResult<bool> {
-        let elements = self.run_poller_with_options(None, None, 0).await?;
+        let elements = self.run_poller().await?;
         Ok(!elements.is_empty())
     }
 
@@ -236,6 +269,10 @@ impl<'a> ElementQuery<'a> {
         }
     }
 
+    //
+    // Helper Retrivers
+    //
+
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
     async fn run_poller(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
         match self.poller {
@@ -252,30 +289,9 @@ impl<'a> ElementQuery<'a> {
         }
     }
 
-    /// Execute the specified selector and return any matched WebElements.
-    async fn fetch_elements_from_source(
-        &self,
-        selector: &ElementSelector<'a>,
-    ) -> WebDriverResult<Vec<WebElement<'a>>> {
-        let by = selector.by.clone();
-        match selector.single {
-            true => match self.source {
-                ElementQuerySource::Driver(driver) => {
-                    driver.find_element(by).await.map(|x| vec![x])
-                }
-                ElementQuerySource::Element(element) => {
-                    element.find_element(by).await.map(|x| vec![x])
-                }
-            },
-            false => match self.source {
-                ElementQuerySource::Driver(driver) => driver.find_elements(by).await,
-                ElementQuerySource::Element(element) => element.find_elements(by).await,
-            },
-        }
-    }
-
     /// Run the specified poller with the corresponding timeout, interval
     /// and num_tries parameters.
+    /// NOTE: This function doesn't return a no_such_element error and the user has to handle it
     async fn run_poller_with_options(
         &self,
         timeout: Option<Duration>,
@@ -309,13 +325,13 @@ impl<'a> ElementQuery<'a> {
 
                 if let Some(t) = timeout {
                     if start.elapsed() >= t && tries >= min_tries {
-                        return Err(no_such_element_error);
+                        return Ok(Vec::new());
                     }
                 }
             }
 
             if timeout.is_none() && tries >= min_tries {
-                return Err(no_such_element_error);
+                return Ok(Vec::new());
             }
 
             if let Some(i) = interval {
@@ -332,6 +348,36 @@ impl<'a> ElementQuery<'a> {
             }
         }
     }
+
+    /// Execute the specified selector and return any matched WebElements.
+    fn fetch_elements_from_source(
+        &self,
+        selector: &ElementSelector<'a>,
+    ) -> impl Future<Output = WebDriverResult<Vec<WebElement<'a>>>> + Send {
+        let by = selector.by.clone();
+        let single = selector.single;
+        let source = self.source.clone();
+        async move {
+            match single {
+                true => match source.as_ref() {
+                    ElementQuerySource::Driver(driver) => {
+                        driver.find_element(by).await.map(|x| vec![x])
+                    }
+                    ElementQuerySource::Element(element) => {
+                        element.find_element(by).await.map(|x| vec![x])
+                    }
+                },
+                false => match source.as_ref() {
+                    ElementQuerySource::Driver(driver) => driver.find_elements(by).await,
+                    ElementQuerySource::Element(element) => element.find_elements(by).await,
+                },
+            }
+        }
+    }
+
+    //
+    // Filters
+    //
 
     /// Add the specified ElementFilter to the last selector.
     pub fn with_filter(mut self, f: ElementFilter) -> Self {
@@ -353,6 +399,10 @@ impl<'a> ElementQuery<'a> {
         }
         self
     }
+
+    //
+    // Advance selectors
+    //
 
     /// Only match elements that are enabled.
     pub fn and_enabled(self) -> Self {
@@ -402,11 +452,15 @@ impl<'a> ElementQuery<'a> {
         }))
     }
 
+    //
+    // By alternative helper selectors
+    //
+
     /// Only match elements that have the specified text.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_text<N>(self, text: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             let text = text.clone();
@@ -423,7 +477,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_id<N>(self, id: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             let id = id.clone();
@@ -440,7 +494,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_class<N>(self, class_name: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             let class_name = class_name.clone();
@@ -457,7 +511,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_tag<N>(self, tag_name: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             let tag_name = tag_name.clone();
@@ -474,7 +528,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_value<N>(self, value: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             let value = value.clone();
@@ -491,7 +545,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_attribute<N>(self, attribute_name: &str, value: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         let attribute_name = attribute_name.to_string();
         self.with_filter(Box::new(move |elem| {
@@ -510,7 +564,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_attributes<N>(self, desired_attributes: &'static [(String, N)]) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             Box::pin(async move {
@@ -533,7 +587,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_property<N>(self, property_name: &str, value: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         let property_name = property_name.to_string();
         self.with_filter(Box::new(move |elem| {
@@ -552,7 +606,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_properties<N>(self, desired_properties: &'static [(&str, N)]) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             Box::pin(async move {
@@ -575,7 +629,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_css_property<N>(self, css_property_name: &str, value: N) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         let css_property_name = css_property_name.to_string();
         self.with_filter(Box::new(move |elem| {
@@ -595,7 +649,7 @@ impl<'a> ElementQuery<'a> {
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_css_properties<N>(self, desired_css_properties: &'static [(&str, N)]) -> Self
     where
-        N: Needle + Clone + 'static,
+        N: Needle + Clone + Send + Sync + 'static,
     {
         self.with_filter(Box::new(move |elem| {
             Box::pin(async move {
