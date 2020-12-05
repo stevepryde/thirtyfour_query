@@ -225,7 +225,7 @@ impl<'a> ElementQuery<'a> {
     }
 
     //
-    // Retrivers
+    // Retrievers
     //
 
     /// Return true if an element matches any selector, otherwise false.
@@ -270,7 +270,7 @@ impl<'a> ElementQuery<'a> {
     }
 
     //
-    // Helper Retrivers
+    // Helper Retrievers
     //
 
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
