@@ -691,3 +691,30 @@ impl ElementQueryable for WebDriver {
         ElementQuery::new(ElementQuerySource::Driver(&self.session), poller, by)
     }
 }
+
+#[cfg(test)]
+/// This function checks if the public async methods implement Send. It is not intended to be executed.
+async fn _test_is_send() -> WebDriverResult<()> {
+    use thirtyfour::prelude::*;
+
+    // Helper methods
+    fn is_send<T: Send>() {}
+    fn is_send_val<T: Send>(_val: &T) {}
+
+    // ElementSelector
+    let selector = ElementSelector::new(By::Css("div"));
+    is_send_val(&selector.run_filters(Vec::new()));
+
+    // Pre values
+    let caps = DesiredCapabilities::chrome();
+    let driver = WebDriver::new("http://localhost:4444", &caps).await?;
+
+    // ElementQuery
+    let query = driver.query(By::Css("div"));
+    is_send_val(&query.exists());
+    is_send_val(&query.first());
+    is_send_val(&query.all());
+    is_send_val(&query.all_required());
+    
+    Ok(())
+}
