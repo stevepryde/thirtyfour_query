@@ -692,10 +692,8 @@ impl ElementQueryable for WebDriver {
     }
 }
 
-//
-// Send test (It passes if it compiles)
-//
-
+#[cfg(test)]
+/// This function checks if the public async method implement Send. It is not intended to be executed.
 async fn _test_is_send() -> WebDriverResult<()> {
     use thirtyfour::prelude::*;
 
@@ -717,6 +715,6 @@ async fn _test_is_send() -> WebDriverResult<()> {
     is_send_val(&query.first());
     is_send_val(&query.all());
     is_send_val(&query.all_required());
-
+    
     Ok(())
 }
