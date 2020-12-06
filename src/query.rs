@@ -693,7 +693,7 @@ impl ElementQueryable for WebDriver {
 }
 
 #[cfg(test)]
-/// This function checks if the public async method implement Send. It is not intended to be executed.
+/// This function checks if the public async methods implement Send. It is not intended to be executed.
 async fn _test_is_send() -> WebDriverResult<()> {
     use thirtyfour::prelude::*;
 
