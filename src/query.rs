@@ -54,8 +54,10 @@ pub enum ElementPoller {
 }
 
 /// Function signature for element filters.
-type ElementFilter = Box<
-    dyn for<'a> Fn(&'a WebElement<'a>) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>
+pub(crate) type ElementPredicate = Box<
+    dyn for<'a> Fn(
+            &'a WebElement<'a>,
+        ) -> Pin<Box<dyn Future<Output = WebDriverResult<bool>> + Send + 'a>>
         + Send
         + Sync
         + 'static,
@@ -69,7 +71,7 @@ pub struct ElementSelector<'a> {
     /// instead. See notes below for `with_single_selector()` for potential pitfalls.
     pub single: bool,
     pub by: By<'a>,
-    pub filters: Vec<ElementFilter>,
+    pub filters: Vec<ElementPredicate>,
 }
 
 impl<'a> ElementSelector<'a> {
@@ -98,7 +100,7 @@ impl<'a> ElementSelector<'a> {
     }
 
     /// Add the specified filter to the list of filters for this selector.
-    pub fn add_filter(&mut self, f: ElementFilter) {
+    pub fn add_filter(&mut self, f: ElementPredicate) {
         self.filters.push(f);
     }
 
@@ -107,11 +109,14 @@ impl<'a> ElementSelector<'a> {
     //
 
     /// Run all filters for this selector on the specified WebElement vec.
-    pub async fn run_filters<'b>(&self, mut elements: Vec<WebElement<'b>>) -> Vec<WebElement<'b>> {
+    pub async fn run_filters<'b>(
+        &self,
+        mut elements: Vec<WebElement<'b>>,
+    ) -> WebDriverResult<Vec<WebElement<'b>>> {
         for func in &self.filters {
             let tmp_elements = mem::replace(&mut elements, Vec::new());
             for element in tmp_elements {
-                if func(&element).await {
+                if func(&element).await? {
                     elements.push(element);
                 }
             }
@@ -121,7 +126,7 @@ impl<'a> ElementSelector<'a> {
             }
         }
 
-        elements
+        Ok(elements)
     }
 }
 
@@ -229,16 +234,21 @@ impl<'a> ElementQuery<'a> {
     //
 
     /// Return true if an element matches any selector, otherwise false.
-    /// This method will not wait, and will not mutate the underlying ElementQuery.
     pub async fn exists(&self) -> WebDriverResult<bool> {
-        let elements = self.run_poller().await?;
+        let elements = self.run_poller(false).await?;
         Ok(!elements.is_empty())
+    }
+
+    /// Return true if no element matches any selector, otherwise false.
+    pub async fn not_exists(&self) -> WebDriverResult<bool> {
+        let elements = self.run_poller(true).await?;
+        Ok(elements.is_empty())
     }
 
     /// Return only the first WebElement that matches any selector (including all of
     /// the filters for that selector).
     pub async fn first(&self) -> WebDriverResult<WebElement<'a>> {
-        let mut elements = self.run_poller().await?;
+        let mut elements = self.run_poller(false).await?;
 
         if elements.is_empty() {
             Err(no_such_element(&self.selectors))
@@ -252,7 +262,7 @@ impl<'a> ElementQuery<'a> {
     ///
     /// Returns an empty Vec if no elements match.
     pub async fn all(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
-        self.run_poller().await
+        self.run_poller(false).await
     }
 
     /// Return all WebElements that match any one selector (including all of the
@@ -260,7 +270,7 @@ impl<'a> ElementQuery<'a> {
     ///
     /// Returns Err(WebDriverError::NoSuchElement) if no elements match.
     pub async fn all_required(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
-        let elements = self.run_poller().await?;
+        let elements = self.run_poller(false).await?;
 
         if elements.is_empty() {
             Err(no_such_element(&self.selectors))
@@ -274,17 +284,18 @@ impl<'a> ElementQuery<'a> {
     //
 
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
-    async fn run_poller(&self) -> WebDriverResult<Vec<WebElement<'a>>> {
+    async fn run_poller(&self, inverted: bool) -> WebDriverResult<Vec<WebElement<'a>>> {
         match self.poller {
-            ElementPoller::NoWait => self.run_poller_with_options(None, None, 0).await,
+            ElementPoller::NoWait => self.run_poller_with_options(None, None, 0, inverted).await,
             ElementPoller::TimeoutWithInterval(timeout, interval) => {
-                self.run_poller_with_options(Some(timeout), Some(interval), 0).await
+                self.run_poller_with_options(Some(timeout), Some(interval), 0, inverted).await
             }
             ElementPoller::NumTriesWithInterval(max_tries, interval) => {
-                self.run_poller_with_options(None, Some(interval), max_tries).await
+                self.run_poller_with_options(None, Some(interval), max_tries, inverted).await
             }
             ElementPoller::TimeoutWithIntervalAndMinTries(timeout, interval, min_tries) => {
-                self.run_poller_with_options(Some(timeout), Some(interval), min_tries).await
+                self.run_poller_with_options(Some(timeout), Some(interval), min_tries, inverted)
+                    .await
             }
         }
     }
@@ -297,12 +308,21 @@ impl<'a> ElementQuery<'a> {
         timeout: Option<Duration>,
         interval: Option<Duration>,
         min_tries: u32,
+        inverted: bool,
     ) -> WebDriverResult<Vec<WebElement<'a>>> {
         let no_such_element_error = no_such_element(&self.selectors);
         if self.selectors.is_empty() {
             return Err(no_such_element_error);
         }
         let mut tries = 0;
+
+        let check = |value: bool| {
+            if inverted {
+                !value
+            } else {
+                value
+            }
+        };
 
         let start = Instant::now();
         loop {
@@ -316,11 +336,11 @@ impl<'a> ElementQuery<'a> {
                 };
 
                 if !elements.is_empty() {
-                    elements = selector.run_filters(elements).await;
+                    elements = selector.run_filters(elements).await?;
+                }
 
-                    if !elements.is_empty() {
-                        return Ok(elements);
-                    }
+                if check(!elements.is_empty()) {
+                    return Ok(elements);
                 }
 
                 if let Some(t) = timeout {
@@ -379,8 +399,8 @@ impl<'a> ElementQuery<'a> {
     // Filters
     //
 
-    /// Add the specified ElementFilter to the last selector.
-    pub fn with_filter(mut self, f: ElementFilter) -> Self {
+    /// Add the specified ElementPredicate to the last selector.
+    pub fn with_filter(mut self, f: ElementPredicate) -> Self {
         if let Some(selector) = self.selectors.last_mut() {
             selector.add_filter(f);
         }
@@ -407,96 +427,56 @@ impl<'a> ElementQuery<'a> {
     /// Only match elements that are enabled.
     pub fn and_enabled(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_enabled().await {
-                    Ok(x) => x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_enabled().await.or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are NOT enabled.
     pub fn and_not_enabled(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_enabled().await {
-                    Ok(x) => !x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_enabled().await.map(|x| !x).or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are selected.
     pub fn and_selected(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_selected().await {
-                    Ok(x) => x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_selected().await.or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are NOT selected.
     pub fn and_not_selected(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_selected().await {
-                    Ok(x) => !x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_selected().await.map(|x| !x).or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are displayed.
     pub fn and_displayed(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_displayed().await {
-                    Ok(x) => x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_displayed().await.or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are NOT displayed.
     pub fn and_not_displayed(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_displayed().await {
-                    Ok(x) => !x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_displayed().await.map(|x| !x).or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are clickable.
     pub fn and_clickable(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_clickable().await {
-                    Ok(x) => x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_clickable().await.or(Ok(false)) })
         }))
     }
 
     /// Only match elements that are NOT clickable.
     pub fn and_not_clickable(self) -> Self {
         self.with_filter(Box::new(|elem| {
-            Box::pin(async move {
-                match elem.is_clickable().await {
-                    Ok(x) => !x,
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.is_clickable().await.map(|x| !x).or(Ok(false)) })
         }))
     }
 
@@ -512,12 +492,7 @@ impl<'a> ElementQuery<'a> {
     {
         self.with_filter(Box::new(move |elem| {
             let text = text.clone();
-            Box::pin(async move {
-                match elem.text().await {
-                    Ok(x) => text.is_match(&x),
-                    _ => false,
-                }
-            })
+            Box::pin(async move { elem.text().await.map(|x| text.is_match(&x)).or(Ok(false)) })
         }))
     }
 
@@ -531,8 +506,8 @@ impl<'a> ElementQuery<'a> {
             let id = id.clone();
             Box::pin(async move {
                 match elem.id().await {
-                    Ok(Some(x)) => id.is_match(&x),
-                    _ => false,
+                    Ok(Some(x)) => Ok(id.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -548,8 +523,8 @@ impl<'a> ElementQuery<'a> {
             let class_name = class_name.clone();
             Box::pin(async move {
                 match elem.class_name().await {
-                    Ok(Some(x)) => class_name.is_match(&x),
-                    _ => false,
+                    Ok(Some(x)) => Ok(class_name.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -563,12 +538,9 @@ impl<'a> ElementQuery<'a> {
     {
         self.with_filter(Box::new(move |elem| {
             let tag_name = tag_name.clone();
-            Box::pin(async move {
-                match elem.tag_name().await {
-                    Ok(x) => tag_name.is_match(&x),
-                    _ => false,
-                }
-            })
+            Box::pin(
+                async move { elem.tag_name().await.map(|x| tag_name.is_match(&x)).or(Ok(false)) },
+            )
         }))
     }
 
@@ -582,8 +554,8 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.value().await {
-                    Ok(Some(x)) => value.is_match(&x),
-                    _ => false,
+                    Ok(Some(x)) => Ok(value.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -601,8 +573,8 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.get_attribute(&attribute_name).await {
-                    Ok(Some(x)) => value.is_match(&x),
-                    _ => false,
+                    Ok(Some(x)) => Ok(value.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -620,13 +592,13 @@ impl<'a> ElementQuery<'a> {
                     match elem.get_attribute(&attribute_name).await {
                         Ok(Some(x)) => {
                             if !value.is_match(&x) {
-                                return false;
+                                return Ok(false);
                             }
                         }
-                        _ => return false,
+                        _ => return Ok(false),
                     }
                 }
-                true
+                Ok(true)
             })
         }))
     }
@@ -643,8 +615,8 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.get_property(&property_name).await {
-                    Ok(Some(x)) => value.is_match(&x),
-                    _ => false,
+                    Ok(Some(x)) => Ok(value.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -662,13 +634,13 @@ impl<'a> ElementQuery<'a> {
                     match elem.get_property(property_name).await {
                         Ok(Some(x)) => {
                             if !value.is_match(&x) {
-                                return false;
+                                return Ok(false);
                             }
                         }
-                        _ => return false,
+                        _ => return Ok(false),
                     }
                 }
-                true
+                Ok(true)
             })
         }))
     }
@@ -685,8 +657,8 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.get_css_property(&css_property_name).await {
-                    Ok(x) => value.is_match(&x),
-                    _ => false,
+                    Ok(x) => Ok(value.is_match(&x)),
+                    _ => Ok(false),
                 }
             })
         }))
@@ -705,13 +677,13 @@ impl<'a> ElementQuery<'a> {
                     match elem.get_css_property(css_property_name).await {
                         Ok(x) => {
                             if !value.is_match(&x) {
-                                return false;
+                                return Ok(false);
                             }
                         }
-                        _ => return false,
+                        _ => return Ok(false),
                     }
                 }
-                true
+                Ok(true)
             })
         }))
     }
@@ -763,6 +735,6 @@ async fn _test_is_send() -> WebDriverResult<()> {
     is_send_val(&query.first());
     is_send_val(&query.all());
     is_send_val(&query.all_required());
-    
+
     Ok(())
 }

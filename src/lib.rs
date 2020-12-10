@@ -5,7 +5,14 @@
 //!
 //! ## Usage
 //!
-//! First, set the default polling behaviour:
+//! ### ElementQuery
+//!
+//! First, import the following:
+//! ```ignore
+//! use thirtyfour_query::{ElementPoller, ElementQueryable};
+//! ```
+//!
+//! Next, set the default polling behaviour:
 //! ```rust
 //! # use thirtyfour::prelude::*;
 //! # use thirtyfour::support::block_on;
@@ -96,8 +103,41 @@
 //! All timeout, interval and ElementPoller details can be overridden on a per-call basis if
 //! desired. See the `ElementQuery` documentation for more details.
 //!
+//! ### ElementWaiter
+//!
+//! First, import the following:
+//! ```ignore
+//! use thirtyfour_query::{ElementPoller, ElementWaitable};
+//! ```
+//!
+//! Next, set the default polling behaviour (same as for ElementQuery - the same polling
+//! settings are used for both):
+//! ```ignore
+//! // Disable implicit timeout in order to use new query interface.
+//! driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
+//!
+//! let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
+//! driver.config_mut().set("ElementPoller", poller)?;
+//! ```
+//!
+//! Now you can do things like this:
+//! ```ignore
+//! elem.wait("Timed out waiting for element to be displayed").until().displayed().await?;
+//! elem.wait("Timed out waiting for element to disappear").until_not().displayed().await?;
+//!
+//! elem.wait("Timed out waiting for element to become enabled").until().enabled().await?;
+//! elem.wait("Timed out waiting for element to become disabled").until_not().enabled().await?;
+//! ```
+//!
+//! And so on, including `selected()` and `stale()`.
+//!
+//! ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
+//! and return a `WebDriverResult<bool>`.
+//!
 mod query;
+mod waiter;
 pub use query::*;
+pub use waiter::*;
 
 /// This is a re-export of stringmatch::StringMatch.
 pub use stringmatch::StringMatch;

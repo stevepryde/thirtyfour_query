@@ -7,7 +7,7 @@
 //!     cargo run --example wikipedia
 
 use thirtyfour::prelude::*;
-use thirtyfour_query::{ElementPoller, ElementQueryable};
+use thirtyfour_query::{ElementPoller, ElementQueryable, ElementWaitable};
 use tokio;
 use tokio::time::Duration;
 
@@ -45,6 +45,10 @@ async fn main() -> color_eyre::Result<()> {
     // Click the search button.
     let elem_button = elem_form.query(By::Css("button[type='submit']")).first().await?;
     elem_button.click().await?;
+
+    // Wait until the button no longer exists (two different ways).
+    elem_button.wait("Timed out waiting for button to become stale").until().stale().await?;
+    driver.query(By::Css("button[type='submit']")).not_exists().await?;
 
     // Look for header to implicitly wait for the page to load.
     driver.query(By::ClassName("firstHeading")).first().await?;

@@ -1,11 +1,18 @@
 [![Crates.io](https://img.shields.io/crates/v/thirtyfour_query.svg?style=for-the-badge)](https://crates.io/crates/thirtyfour_query)
 [![docs.rs](https://img.shields.io/badge/docs.rs-thirtyfour_query-blue?style=for-the-badge)](https://docs.rs/thirtyfour_query)
 
-Advanced element query interface for the thirtyfour crate.
+Advanced element query/polling interfaces for the thirtyfour crate.
 
 ## Usage
 
-First, set the default polling behaviour:
+### ElementQuery 
+
+First, import the following:
+```rust
+use thirtyfour_query::{ElementPoller, ElementQueryable};
+```
+
+Next, set the default polling behaviour:
 ```rust 
 // Disable implicit timeout in order to use new query interface.
 driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
@@ -35,6 +42,40 @@ driver.query(By::Css("thiswont.match")).with_text("testing")
 
 To fetch all matching elements instead of just the first one, simply change first() to all() 
 and you'll get a Vec instead.
+
+ElementQuery also allows the user of custom predicates that take a `&WebElement` argument
+and return a `WebDriverResult<bool>`.
+
+### ElementWaiter
+
+First, import the following:
+```rust
+use thirtyfour_query::{ElementPoller, ElementWaitable};
+```
+
+Next, set the default polling behaviour (same as for ElementQuery - the same polling
+settings are used for both):
+```rust 
+// Disable implicit timeout in order to use new query interface.
+driver.set_implicit_wait_timeout(Duration::new(0, 0)).await?;
+
+let poller = ElementPoller::TimeoutWithInterval(Duration::new(20, 0), Duration::from_millis(500));
+driver.config_mut().set("ElementPoller", poller)?;
+```
+
+Now you can do things like this:
+```rust
+elem.wait("Timed out waiting for element to be displayed").until().displayed().await?;
+elem.wait("Timed out waiting for element to disappear").until_not().displayed().await?;
+
+elem.wait("Timed out waiting for element to become enabled").until().enabled().await?;
+elem.wait("Timed out waiting for element to become disabled").until_not().enabled().await?;
+```
+
+And so on, including `selected()` and `stale()`.
+
+ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
+and return a `WebDriverResult<bool>`.
 
 ## LICENSE
 
