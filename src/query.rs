@@ -173,7 +173,7 @@ impl<'a> ElementQuery<'a> {
     // Constructor
     //
 
-    pub fn new(source: ElementQuerySource<'a>, poller: ElementPoller, by: By<'a>) -> Self {
+    fn new(source: ElementQuerySource<'a>, poller: ElementPoller, by: By<'a>) -> Self {
         let selector = ElementSelector::new(by.clone());
         Self {
             source: Arc::new(source),
@@ -452,6 +452,54 @@ impl<'a> ElementQuery<'a> {
         }))
     }
 
+    /// Only match elements that are displayed.
+    pub fn and_displayed(self) -> Self {
+        self.with_filter(Box::new(|elem| {
+            Box::pin(async move {
+                match elem.is_displayed().await {
+                    Ok(x) => x,
+                    _ => false,
+                }
+            })
+        }))
+    }
+
+    /// Only match elements that are NOT displayed.
+    pub fn and_not_displayed(self) -> Self {
+        self.with_filter(Box::new(|elem| {
+            Box::pin(async move {
+                match elem.is_displayed().await {
+                    Ok(x) => !x,
+                    _ => false,
+                }
+            })
+        }))
+    }
+
+    /// Only match elements that are clickable.
+    pub fn and_clickable(self) -> Self {
+        self.with_filter(Box::new(|elem| {
+            Box::pin(async move {
+                match elem.is_clickable().await {
+                    Ok(x) => x,
+                    _ => false,
+                }
+            })
+        }))
+    }
+
+    /// Only match elements that are NOT clickable.
+    pub fn and_not_clickable(self) -> Self {
+        self.with_filter(Box::new(|elem| {
+            Box::pin(async move {
+                match elem.is_clickable().await {
+                    Ok(x) => !x,
+                    _ => false,
+                }
+            })
+        }))
+    }
+
     //
     // By alternative helper selectors
     //
@@ -483,7 +531,7 @@ impl<'a> ElementQuery<'a> {
             let id = id.clone();
             Box::pin(async move {
                 match elem.id().await {
-                    Ok(x) => id.is_match(&x),
+                    Ok(Some(x)) => id.is_match(&x),
                     _ => false,
                 }
             })
@@ -500,7 +548,7 @@ impl<'a> ElementQuery<'a> {
             let class_name = class_name.clone();
             Box::pin(async move {
                 match elem.class_name().await {
-                    Ok(x) => class_name.is_match(&x),
+                    Ok(Some(x)) => class_name.is_match(&x),
                     _ => false,
                 }
             })
@@ -534,7 +582,7 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.value().await {
-                    Ok(x) => value.is_match(&x),
+                    Ok(Some(x)) => value.is_match(&x),
                     _ => false,
                 }
             })
@@ -553,7 +601,7 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.get_attribute(&attribute_name).await {
-                    Ok(x) => value.is_match(&x),
+                    Ok(Some(x)) => value.is_match(&x),
                     _ => false,
                 }
             })
@@ -570,7 +618,7 @@ impl<'a> ElementQuery<'a> {
             Box::pin(async move {
                 for (attribute_name, value) in desired_attributes {
                     match elem.get_attribute(&attribute_name).await {
-                        Ok(x) => {
+                        Ok(Some(x)) => {
                             if !value.is_match(&x) {
                                 return false;
                             }
@@ -595,7 +643,7 @@ impl<'a> ElementQuery<'a> {
             let value = value.clone();
             Box::pin(async move {
                 match elem.get_property(&property_name).await {
-                    Ok(x) => value.is_match(&x),
+                    Ok(Some(x)) => value.is_match(&x),
                     _ => false,
                 }
             })
@@ -612,7 +660,7 @@ impl<'a> ElementQuery<'a> {
             Box::pin(async move {
                 for (property_name, value) in desired_properties {
                     match elem.get_property(property_name).await {
-                        Ok(x) => {
+                        Ok(Some(x)) => {
                             if !value.is_match(&x) {
                                 return false;
                             }
@@ -654,7 +702,7 @@ impl<'a> ElementQuery<'a> {
         self.with_filter(Box::new(move |elem| {
             Box::pin(async move {
                 for (css_property_name, value) in desired_css_properties {
-                    match elem.get_attribute(css_property_name).await {
+                    match elem.get_css_property(css_property_name).await {
                         Ok(x) => {
                             if !value.is_match(&x) {
                                 return false;

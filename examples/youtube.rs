@@ -63,7 +63,12 @@ async fn main() -> color_eyre::Result<()> {
         .with_attribute("aria-valuemax", Regex::new(r"\d+").unwrap())
         .first()
         .await?;
-    let seconds: u64 = progress_bar.get_attribute("aria-valuemax").await?.parse().unwrap_or(30);
+    let seconds: u64 = progress_bar
+        .get_attribute("aria-valuemax")
+        .await?
+        .map(|x| x.parse().ok())
+        .flatten()
+        .unwrap_or(30);
     delay_for(Duration::new(seconds, 0)).await;
 
     Ok(())
