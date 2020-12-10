@@ -3,6 +3,11 @@
 
 Advanced element query/polling interfaces for the thirtyfour crate.
 
+These interfaces are currently experimental and will likely be merged into
+the main `thirtyfour` crate once they are stable. 
+
+If you can help by testing these and providing feedback that would be appreciated.
+
 ## Usage
 
 ### ElementQuery 
