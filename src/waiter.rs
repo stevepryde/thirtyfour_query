@@ -205,13 +205,16 @@ async fn _test_is_send() -> WebDriverResult<()> {
     // Pre values
     let caps = DesiredCapabilities::chrome();
     let driver = WebDriver::new("http://localhost:4444", &caps).await?;
+    let elem = driver.find_element(By::Css(r#"div"#)).await?;
 
     // ElementWaitCondition
-    is_send_val(&driver.wait("Some error").until().stale());
-    is_send_val(&driver.wait("Some error").until().displayed());
-    is_send_val(&driver.wait("Some error").until().selected());
-    is_send_val(&driver.wait("Some error").until().enabled());
-    is_send_val(&driver.wait("Some error").until().condition(Box::new(|_el| async move { true })));
+    is_send_val(&elem.wait("Some error").until().stale());
+    is_send_val(&elem.wait("Some error").until().displayed());
+    is_send_val(&elem.wait("Some error").until().selected());
+    is_send_val(&elem.wait("Some error").until().enabled());
+    is_send_val(&elem.wait("Some error").until().condition(Box::new(|elem| {
+        Box::pin(async move { elem.is_enabled().await.or(Ok(false)) })
+    })));
 
     Ok(())
 }
