@@ -192,3 +192,26 @@ impl ElementWaitable for WebElement<'_> {
         ElementWaiter::new(&self, poller, message)
     }
 }
+
+#[cfg(test)]
+/// This function checks if the public async methods implement Send. It is not intended to be executed.
+async fn _test_is_send() -> WebDriverResult<()> {
+    use thirtyfour::prelude::*;
+
+    // Helper methods
+    fn is_send<T: Send>() {}
+    fn is_send_val<T: Send>(_val: &T) {}
+
+    // Pre values
+    let caps = DesiredCapabilities::chrome();
+    let driver = WebDriver::new("http://localhost:4444", &caps).await?;
+
+    // ElementWaitCondition
+    is_send_val(&driver.wait("Some error").until().stale());
+    is_send_val(&driver.wait("Some error").until().displayed());
+    is_send_val(&driver.wait("Some error").until().selected());
+    is_send_val(&driver.wait("Some error").until().enabled());
+    is_send_val(&driver.wait("Some error").until().condition(Box::new(|_el| async move { true })));
+
+    Ok(())
+}
