@@ -732,6 +732,7 @@ async fn _test_is_send() -> WebDriverResult<()> {
     // ElementQuery
     let query = driver.query(By::Css("div"));
     is_send_val(&query.exists());
+    is_send_val(&query.not_exists());
     is_send_val(&query.first());
     is_send_val(&query.all());
     is_send_val(&query.all_required());
