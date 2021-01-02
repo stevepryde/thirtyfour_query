@@ -1,13 +1,13 @@
-use tokio::time::{delay_for, Duration, Instant};
-
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use stringmatch::Needle;
 use thirtyfour::error::{WebDriverError, WebDriverErrorInfo};
 use thirtyfour::prelude::{WebDriver, WebDriverResult};
+use thirtyfour::support::sleep;
 use thirtyfour::{By, WebDriverCommands, WebDriverSession, WebElement};
 
 /// Get String containing comma-separated list of selectors used.
@@ -363,7 +363,7 @@ impl<'a> ElementQuery<'a> {
 
                 if actual_elapsed < minimum_elapsed {
                     // So we need to wait this much longer.
-                    delay_for(minimum_elapsed - actual_elapsed).await;
+                    sleep(minimum_elapsed - actual_elapsed).await;
                 }
             }
         }

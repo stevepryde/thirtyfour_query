@@ -1,9 +1,9 @@
 use crate::{ElementPoller, ElementPredicate};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thirtyfour::error::WebDriverError;
 use thirtyfour::prelude::WebDriverResult;
+use thirtyfour::support::sleep;
 use thirtyfour::WebElement;
-use tokio::time::{delay_for, Instant};
 
 pub struct ElementWaiter<'a> {
     element: &'a WebElement<'a>,
@@ -104,7 +104,7 @@ impl<'a> ElementWaiter<'a> {
 
                 if actual_elapsed < minimum_elapsed {
                     // So we need to wait this much longer.
-                    delay_for(minimum_elapsed - actual_elapsed).await;
+                    sleep(minimum_elapsed - actual_elapsed).await;
                 }
             }
         }
