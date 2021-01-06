@@ -134,6 +134,7 @@
 //! ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
 //! and return a `WebDriverResult<bool>`.
 //!
+pub mod conditions;
 mod query;
 mod waiter;
 pub use query::*;

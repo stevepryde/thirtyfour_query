@@ -9,9 +9,10 @@
 use regex::Regex;
 use stringmatch::StringMatch;
 use thirtyfour::prelude::*;
+use thirtyfour::support::sleep;
 use thirtyfour_query::{ElementPoller, ElementQueryable};
 use tokio;
-use tokio::time::{delay_for, Duration};
+use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -54,7 +55,7 @@ async fn main() -> color_eyre::Result<()> {
     let elem_fullscreen_button =
         driver.query(By::Css("button.ytp-fullscreen-button")).first().await?;
     elem_fullscreen_button.scroll_into_view().await?;
-    delay_for(Duration::new(1, 0)).await;
+    sleep(Duration::new(1, 0)).await;
     elem_fullscreen_button.click().await?;
 
     // Wait for it to finish. We can find the exact number of seconds in the DOM.
@@ -69,7 +70,7 @@ async fn main() -> color_eyre::Result<()> {
         .map(|x| x.parse().ok())
         .flatten()
         .unwrap_or(30);
-    delay_for(Duration::new(seconds, 0)).await;
+    sleep(Duration::new(seconds, 0)).await;
 
     Ok(())
 }

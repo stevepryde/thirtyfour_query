@@ -1,3 +1,5 @@
+use crate::conditions;
+use crate::conditions::handle_errors;
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use std::mem;
@@ -171,6 +173,7 @@ pub struct ElementQuery<'a> {
     source: Arc<ElementQuerySource<'a>>,
     poller: ElementPoller,
     selectors: Vec<ElementSelector<'a>>,
+    ignore_errors: bool,
 }
 
 impl<'a> ElementQuery<'a> {
@@ -184,7 +187,16 @@ impl<'a> ElementQuery<'a> {
             source: Arc::new(source),
             poller,
             selectors: vec![selector],
+            ignore_errors: true,
         }
+    }
+
+    /// By default a waiter will ignore any errors that occur while polling for the desired
+    /// element(s). However, this behaviour can be modified so that the waiter will return
+    /// early if an error is returned from thirtyfour.
+    pub fn ignore_errors(mut self, ignore: bool) -> Self {
+        self.ignore_errors = ignore;
+        self
     }
 
     //
@@ -426,58 +438,50 @@ impl<'a> ElementQuery<'a> {
 
     /// Only match elements that are enabled.
     pub fn and_enabled(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_enabled().await.or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_enabled(ignore_errors))
     }
 
     /// Only match elements that are NOT enabled.
     pub fn and_not_enabled(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_enabled().await.map(|x| !x).or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_not_enabled(ignore_errors))
     }
 
     /// Only match elements that are selected.
     pub fn and_selected(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_selected().await.or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_selected(ignore_errors))
     }
 
     /// Only match elements that are NOT selected.
     pub fn and_not_selected(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_selected().await.map(|x| !x).or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_not_selected(ignore_errors))
     }
 
     /// Only match elements that are displayed.
     pub fn and_displayed(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_displayed().await.or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_displayed(ignore_errors))
     }
 
     /// Only match elements that are NOT displayed.
     pub fn and_not_displayed(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_displayed().await.map(|x| !x).or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_not_displayed(ignore_errors))
     }
 
     /// Only match elements that are clickable.
     pub fn and_clickable(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_clickable().await.or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_clickable(ignore_errors))
     }
 
     /// Only match elements that are NOT clickable.
     pub fn and_not_clickable(self) -> Self {
-        self.with_filter(Box::new(|elem| {
-            Box::pin(async move { elem.is_clickable().await.map(|x| !x).or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_is_not_clickable(ignore_errors))
     }
 
     //
@@ -490,10 +494,8 @@ impl<'a> ElementQuery<'a> {
     where
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            let text = text.clone();
-            Box::pin(async move { elem.text().await.map(|x| text.is_match(&x)).or(Ok(false)) })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_text(text, ignore_errors))
     }
 
     /// Only match elements that have the specified id.
@@ -502,12 +504,14 @@ impl<'a> ElementQuery<'a> {
     where
         N: Needle + Clone + Send + Sync + 'static,
     {
+        let ignore_errors = self.ignore_errors;
         self.with_filter(Box::new(move |elem| {
             let id = id.clone();
             Box::pin(async move {
                 match elem.id().await {
                     Ok(Some(x)) => Ok(id.is_match(&x)),
-                    _ => Ok(false),
+                    Ok(None) => Ok(false),
+                    Err(e) => handle_errors(Err(e), ignore_errors),
                 }
             })
         }))
@@ -519,15 +523,8 @@ impl<'a> ElementQuery<'a> {
     where
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            let class_name = class_name.clone();
-            Box::pin(async move {
-                match elem.class_name().await {
-                    Ok(Some(x)) => Ok(class_name.is_match(&x)),
-                    _ => Ok(false),
-                }
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_class(class_name, ignore_errors))
     }
 
     /// Only match elements that have the specified tag.
@@ -536,11 +533,12 @@ impl<'a> ElementQuery<'a> {
     where
         N: Needle + Clone + Send + Sync + 'static,
     {
+        let ignore_errors = self.ignore_errors;
         self.with_filter(Box::new(move |elem| {
             let tag_name = tag_name.clone();
-            Box::pin(
-                async move { elem.tag_name().await.map(|x| tag_name.is_match(&x)).or(Ok(false)) },
-            )
+            Box::pin(async move {
+                handle_errors(elem.tag_name().await.map(|x| tag_name.is_match(&x)), ignore_errors)
+            })
         }))
     }
 
@@ -550,142 +548,160 @@ impl<'a> ElementQuery<'a> {
     where
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            let value = value.clone();
-            Box::pin(async move {
-                match elem.value().await {
-                    Ok(Some(x)) => Ok(value.is_match(&x)),
-                    _ => Ok(false),
-                }
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_value(value, ignore_errors))
     }
 
     /// Only match elements that have the specified attribute with the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_attribute<N>(self, attribute_name: &str, value: N) -> Self
+    pub fn with_attribute<S, N>(self, attribute_name: S, value: N) -> Self
     where
+        S: Into<String>,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        let attribute_name = attribute_name.to_string();
-        self.with_filter(Box::new(move |elem| {
-            let attribute_name = attribute_name.clone();
-            let value = value.clone();
-            Box::pin(async move {
-                match elem.get_attribute(&attribute_name).await {
-                    Ok(Some(x)) => Ok(value.is_match(&x)),
-                    _ => Ok(false),
-                }
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_attribute(attribute_name, value, ignore_errors))
+    }
+
+    /// Only match elements that do not have the specified attribute with the specified value.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_attribute<S, N>(self, attribute_name: S, value: N) -> Self
+    where
+        S: Into<String>,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_attribute(
+            attribute_name,
+            value,
+            ignore_errors,
+        ))
     }
 
     /// Only match elements that have the specified attributes with the specified values.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_attributes<N>(self, desired_attributes: &'static [(String, N)]) -> Self
+    pub fn with_attributes<S, N>(self, desired_attributes: &[(S, N)]) -> Self
     where
+        S: Into<String> + Clone,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            Box::pin(async move {
-                for (attribute_name, value) in desired_attributes {
-                    match elem.get_attribute(&attribute_name).await {
-                        Ok(Some(x)) => {
-                            if !value.is_match(&x) {
-                                return Ok(false);
-                            }
-                        }
-                        _ => return Ok(false),
-                    }
-                }
-                Ok(true)
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_attributes(desired_attributes, ignore_errors))
+    }
+
+    /// Only match elements that do not have the specified attributes with the specified values.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_attributes<S, N>(self, desired_attributes: &[(S, N)]) -> Self
+    where
+        S: Into<String> + Clone,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_attributes(desired_attributes, ignore_errors))
     }
 
     /// Only match elements that have the specified property with the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_property<N>(self, property_name: &str, value: N) -> Self
+    pub fn with_property<S, N>(self, property_name: S, value: N) -> Self
     where
+        S: Into<String>,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        let property_name = property_name.to_string();
-        self.with_filter(Box::new(move |elem| {
-            let property_name = property_name.clone();
-            let value = value.clone();
-            Box::pin(async move {
-                match elem.get_property(&property_name).await {
-                    Ok(Some(x)) => Ok(value.is_match(&x)),
-                    _ => Ok(false),
-                }
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_property(property_name, value, ignore_errors))
+    }
+
+    /// Only match elements that do not have the specified property with the specified value.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_property<S, N>(self, property_name: S, value: N) -> Self
+    where
+        S: Into<String>,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_property(property_name, value, ignore_errors))
     }
 
     /// Only match elements that have the specified properties with the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_properties<N>(self, desired_properties: &'static [(&str, N)]) -> Self
+    pub fn with_properties<S, N>(self, desired_properties: &[(S, N)]) -> Self
     where
+        S: Into<String> + Clone,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            Box::pin(async move {
-                for (property_name, value) in desired_properties {
-                    match elem.get_property(property_name).await {
-                        Ok(Some(x)) => {
-                            if !value.is_match(&x) {
-                                return Ok(false);
-                            }
-                        }
-                        _ => return Ok(false),
-                    }
-                }
-                Ok(true)
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_properties(desired_properties, ignore_errors))
+    }
+
+    /// Only match elements that do not have the specified properties with the specified value.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_properties<S, N>(self, desired_properties: &[(S, N)]) -> Self
+    where
+        S: Into<String> + Clone,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_properties(desired_properties, ignore_errors))
     }
 
     /// Only match elements that have the specified CSS property with the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_css_property<N>(self, css_property_name: &str, value: N) -> Self
+    pub fn with_css_property<S, N>(self, css_property_name: S, value: N) -> Self
     where
+        S: Into<String>,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        let css_property_name = css_property_name.to_string();
-        self.with_filter(Box::new(move |elem| {
-            let css_property_name = css_property_name.clone();
-            let value = value.clone();
-            Box::pin(async move {
-                match elem.get_css_property(&css_property_name).await {
-                    Ok(x) => Ok(value.is_match(&x)),
-                    _ => Ok(false),
-                }
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_css_property(
+            css_property_name,
+            value,
+            ignore_errors,
+        ))
+    }
+
+    /// Only match elements that do not have the specified CSS property with the specified value.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_css_property<S, N>(self, css_property_name: S, value: N) -> Self
+    where
+        S: Into<String>,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_css_property(
+            css_property_name,
+            value,
+            ignore_errors,
+        ))
     }
 
     /// Only match elements that have the specified CSS properties with the
     /// specified values.
     /// See the `Needle` documentation for more details on text matching rules.
-    pub fn with_css_properties<N>(self, desired_css_properties: &'static [(&str, N)]) -> Self
+    pub fn with_css_properties<S, N>(self, desired_css_properties: &[(S, N)]) -> Self
     where
+        S: Into<String> + Clone,
         N: Needle + Clone + Send + Sync + 'static,
     {
-        self.with_filter(Box::new(move |elem| {
-            Box::pin(async move {
-                for (css_property_name, value) in desired_css_properties {
-                    match elem.get_css_property(css_property_name).await {
-                        Ok(x) => {
-                            if !value.is_match(&x) {
-                                return Ok(false);
-                            }
-                        }
-                        _ => return Ok(false),
-                    }
-                }
-                Ok(true)
-            })
-        }))
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_css_properties(
+            desired_css_properties,
+            ignore_errors,
+        ))
+    }
+
+    /// Only match elements that do not have the specified CSS properties with the
+    /// specified values.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_css_properties<S, N>(self, desired_css_properties: &[(S, N)]) -> Self
+    where
+        S: Into<String> + Clone,
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_has_not_css_properties(
+            desired_css_properties,
+            ignore_errors,
+        ))
     }
 }
 
