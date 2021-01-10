@@ -85,7 +85,7 @@
 //! # driver.config_mut().set("ElementPoller", poller)?;
 //! # driver.get("http://webappdemo").await?;
 //! let elem = driver.query(By::Css("thiswont.match")).with_text("testing")
-//!     .or(By::Id("button1")).with_class(StringMatch::new("pure-button").partial()).and_enabled()
+//!     .or(By::Id("button1")).with_class(StringMatch::new("pure-button").word()).and_enabled()
 //!     .first().await?;
 //! #         assert_eq!(elem.tag_name().await?, "button");
 //! #         Ok(())
@@ -93,7 +93,7 @@
 //! # }
 //! ```
 //!
-//! Note the use of `StringMatch` to provide a partial match on the class name.
+//! Note the use of `StringMatch` to provide a partial (whole-word) match on the class name.
 //! See the documentation for [StringMatch](https://crates.io/crates/stringmatch) for more info.
 //!
 //! To fetch all matching elements instead of just the first one, simply change `first()` to `all()`
