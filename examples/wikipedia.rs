@@ -51,7 +51,7 @@ async fn main() -> color_eyre::Result<()> {
     elem_button.click().await?;
 
     // Wait until the button no longer exists (two different ways).
-    elem_button.wait_until("Timed out waiting for button to become stale").stale().await?;
+    elem_button.wait_until().error("Timed out waiting for button to become stale").stale().await?;
     driver.query(By::Css("button[type='submit']")).nowait().not_exists().await?;
 
     // Look for header to implicitly wait for the page to load.

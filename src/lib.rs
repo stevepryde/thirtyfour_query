@@ -122,11 +122,12 @@
 //!
 //! Now you can do things like this:
 //! ```ignore
-//! elem.wait_until("Timed out waiting for element to be displayed").displayed().await?;
-//! elem.wait_until("Timed out waiting for element to disappear").not_displayed().await?;
+//! elem.wait_until().displayed().await?;
+//! // You can optionally provide a nicer error message like this.
+//! elem.wait_until().error("Timed out waiting for element to disappear").not_displayed().await?;
 //!
-//! elem.wait_until("Timed out waiting for element to become enabled").enabled().await?;
-//! elem.wait_until("Timed out waiting for element to become clickable").clickable().await?;
+//! elem.wait_until().enabled().await?;
+//! elem.wait_until().clickable().await?;
 //! ```
 //!
 //! And so on. See the `ElementWaiter` docs for the full list of predicates available.
@@ -140,7 +141,7 @@
 //! ```ignore
 //! use thirtyfour_query::conditions;
 //!
-//! elem.wait_until("Timed out waiting for element to be displayed and clickable").conditions(vec![
+//! elem.wait_until().conditions(vec![
 //!     conditions::element_is_displayed(true),
 //!     conditions::element_is_clickable(true)
 //! ]).await?;

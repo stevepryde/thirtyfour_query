@@ -15,14 +15,11 @@ pub struct ElementWaiter<'a> {
 }
 
 impl<'a> ElementWaiter<'a> {
-    fn new<S>(element: &'a WebElement<'a>, poller: ElementPoller, message: S) -> Self
-    where
-        S: Into<String>,
-    {
+    fn new(element: &'a WebElement<'a>, poller: ElementPoller) -> Self {
         Self {
             element,
             poller,
-            message: message.into(),
+            message: String::new(),
             ignore_errors: true,
         }
     }
@@ -31,6 +28,12 @@ impl<'a> ElementWaiter<'a> {
     /// This will not affect the default ElementPoller used for other waits.
     pub fn with_poller(mut self, poller: ElementPoller) -> Self {
         self.poller = poller;
+        self
+    }
+
+    /// Provide a human-readable error message to be returned in the case of timeout.
+    pub fn error(mut self, message: &str) -> Self {
+        self.message = message.to_string();
         self
     }
 
@@ -330,20 +333,15 @@ impl<'a> ElementWaiter<'a> {
 
 /// Trait for enabling the ElementWaiter interface.
 pub trait ElementWaitable {
-    fn wait_until<S>(&self, timeout_message: S) -> ElementWaiter
-    where
-        S: Into<String>;
+    fn wait_until(&self) -> ElementWaiter;
 }
 
 impl ElementWaitable for WebElement<'_> {
     /// Return an ElementQuery instance for more executing powerful element queries.
-    fn wait_until<S>(&self, timeout_message: S) -> ElementWaiter
-    where
-        S: Into<String>,
-    {
+    fn wait_until(&self) -> ElementWaiter {
         let poller: ElementPoller =
             self.session.config().get("ElementPoller").unwrap_or(ElementPoller::NoWait);
-        ElementWaiter::new(&self, poller, timeout_message)
+        ElementWaiter::new(&self, poller)
     }
 }
 
@@ -362,11 +360,11 @@ async fn _test_is_send() -> WebDriverResult<()> {
     let elem = driver.find_element(By::Css(r#"div"#)).await?;
 
     // ElementWaitCondition
-    is_send_val(&elem.wait_until("Some error").stale());
-    is_send_val(&elem.wait_until("Some error").displayed());
-    is_send_val(&elem.wait_until("Some error").selected());
-    is_send_val(&elem.wait_until("Some error").enabled());
-    is_send_val(&elem.wait_until("Some error").condition(Box::new(|elem| {
+    is_send_val(&elem.wait_until().stale());
+    is_send_val(&elem.wait_until().displayed());
+    is_send_val(&elem.wait_until().selected());
+    is_send_val(&elem.wait_until().enabled());
+    is_send_val(&elem.wait_until().condition(Box::new(|elem| {
         Box::pin(async move { elem.is_enabled().await.or(Ok(false)) })
     })));
 
