@@ -1,16 +1,15 @@
-use crate::conditions;
-use crate::conditions::handle_errors;
-use futures::Future;
-use serde::{Deserialize, Serialize};
 use std::mem;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use futures::Future;
 use stringmatch::Needle;
 use thirtyfour::error::{WebDriverError, WebDriverErrorInfo};
 use thirtyfour::prelude::{WebDriver, WebDriverResult};
-use thirtyfour::support::sleep;
 use thirtyfour::{By, WebDriverCommands, WebDriverSession, WebElement};
+
+use crate::conditions::{handle_errors, negate};
+use crate::{conditions, ElementPoller, ElementPollerTicker, ElementPredicate};
 
 /// Get String containing comma-separated list of selectors used.
 fn get_selector_summary(selectors: &[ElementSelector]) -> String {
@@ -19,51 +18,19 @@ fn get_selector_summary(selectors: &[ElementSelector]) -> String {
 }
 
 /// Helper function to return the NoSuchElement error struct.
-fn no_such_element(selectors: &[ElementSelector]) -> WebDriverError {
+fn no_such_element(selectors: &[ElementSelector], description: &str) -> WebDriverError {
+    let element_description = if description.is_empty() {
+        String::from("Element(s)")
+    } else {
+        format!("'{}' element(s)", description)
+    };
+
     WebDriverError::NoSuchElement(WebDriverErrorInfo::new(&format!(
-        "Element(s) not found using selectors: {}",
+        "{} not found using selectors: {}",
+        element_description,
         &get_selector_summary(selectors)
     )))
 }
-
-/// Parameters used to determine the polling / timeout behaviour.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ElementPoller {
-    /// No polling, single attempt.
-    NoWait,
-    /// Poll up to the specified timeout, with the specified interval being the
-    /// minimum time elapsed between the start of each poll attempt.
-    /// If the previous poll attempt took longer than the interval, the next will
-    /// start immediately. Once the timeout is reached, a Timeout error will be
-    /// returned regardless of the actual number of polling attempts completed.
-    TimeoutWithInterval(Duration, Duration),
-    /// Poll once every interval, up to the maximum number of polling attempts.
-    /// If the previous poll attempt took longer than the interval, the next will
-    /// start immediately. However, in the case that the desired element is not
-    /// found, you will be guaranteed the specified number of polling attempts,
-    /// regardless of how long it takes.
-    NumTriesWithInterval(u32, Duration),
-    /// Poll once every interval, up to the specified timeout, or the specified
-    /// minimum number of polling attempts, whichever comes last.
-    /// If the previous poll attempt took longer than the interval, the next will
-    /// start immediately. If the timeout was reached before the minimum number
-    /// of polling attempts has been executed, then the query will continue
-    /// polling until the number of polling attempts equals the specified minimum.
-    /// If the minimum number of polling attempts is reached prior to the
-    /// specified timeout, then the polling attempts will continue until the
-    /// timeout is reached instead.
-    TimeoutWithIntervalAndMinTries(Duration, Duration, u32),
-}
-
-/// Function signature for element filters.
-pub(crate) type ElementPredicate = Box<
-    dyn for<'a> Fn(
-            &'a WebElement<'a>,
-        ) -> Pin<Box<dyn Future<Output = WebDriverResult<bool>> + Send + 'a>>
-        + Send
-        + Sync
-        + 'static,
->;
 
 /// An ElementSelector contains a selector method (By) as well as zero or more filters.
 /// The filters will be applied to any elements matched by the selector.
@@ -174,6 +141,7 @@ pub struct ElementQuery<'a> {
     poller: ElementPoller,
     selectors: Vec<ElementSelector<'a>>,
     ignore_errors: bool,
+    description: String,
 }
 
 impl<'a> ElementQuery<'a> {
@@ -188,10 +156,18 @@ impl<'a> ElementQuery<'a> {
             poller,
             selectors: vec![selector],
             ignore_errors: true,
+            description: String::new(),
         }
     }
 
-    /// By default a waiter will ignore any errors that occur while polling for the desired
+    /// Provide a name that will be included in the error message if the query was not successful.
+    /// This is useful for providing more context about this particular query.
+    pub fn desc(mut self, description: &str) -> Self {
+        self.description = description.to_string();
+        self
+    }
+
+    /// By default a query will ignore any errors that occur while polling for the desired
     /// element(s). However, this behaviour can be modified so that the waiter will return
     /// early if an error is returned from thirtyfour.
     pub fn ignore_errors(mut self, ignore: bool) -> Self {
@@ -263,7 +239,7 @@ impl<'a> ElementQuery<'a> {
         let mut elements = self.run_poller(false).await?;
 
         if elements.is_empty() {
-            Err(no_such_element(&self.selectors))
+            Err(no_such_element(&self.selectors, &self.description))
         } else {
             Ok(elements.remove(0))
         }
@@ -285,7 +261,7 @@ impl<'a> ElementQuery<'a> {
         let elements = self.run_poller(false).await?;
 
         if elements.is_empty() {
-            Err(no_such_element(&self.selectors))
+            Err(no_such_element(&self.selectors, &self.description))
         } else {
             Ok(elements)
         }
@@ -296,37 +272,13 @@ impl<'a> ElementQuery<'a> {
     //
 
     /// Run the poller for this ElementQuery and return the Vec of WebElements matched.
+    /// NOTE: This function doesn't return a no_such_element error and the caller must handle it.
     async fn run_poller(&self, inverted: bool) -> WebDriverResult<Vec<WebElement<'a>>> {
-        match self.poller {
-            ElementPoller::NoWait => self.run_poller_with_options(None, None, 0, inverted).await,
-            ElementPoller::TimeoutWithInterval(timeout, interval) => {
-                self.run_poller_with_options(Some(timeout), Some(interval), 0, inverted).await
-            }
-            ElementPoller::NumTriesWithInterval(max_tries, interval) => {
-                self.run_poller_with_options(None, Some(interval), max_tries, inverted).await
-            }
-            ElementPoller::TimeoutWithIntervalAndMinTries(timeout, interval, min_tries) => {
-                self.run_poller_with_options(Some(timeout), Some(interval), min_tries, inverted)
-                    .await
-            }
-        }
-    }
-
-    /// Run the specified poller with the corresponding timeout, interval
-    /// and num_tries parameters.
-    /// NOTE: This function doesn't return a no_such_element error and the user has to handle it
-    async fn run_poller_with_options(
-        &self,
-        timeout: Option<Duration>,
-        interval: Option<Duration>,
-        min_tries: u32,
-        inverted: bool,
-    ) -> WebDriverResult<Vec<WebElement<'a>>> {
-        let no_such_element_error = no_such_element(&self.selectors);
+        let no_such_element_error = no_such_element(&self.selectors, &self.description);
         if self.selectors.is_empty() {
             return Err(no_such_element_error);
         }
-        let mut tries = 0;
+        let mut ticker = ElementPollerTicker::new(self.poller.clone());
 
         let check = |value: bool| {
             if inverted {
@@ -336,10 +288,7 @@ impl<'a> ElementQuery<'a> {
             }
         };
 
-        let start = Instant::now();
         loop {
-            tries += 1;
-
             for selector in &self.selectors {
                 let mut elements = match self.fetch_elements_from_source(selector).await {
                     Ok(x) => x,
@@ -354,29 +303,10 @@ impl<'a> ElementQuery<'a> {
                 if check(!elements.is_empty()) {
                     return Ok(elements);
                 }
-
-                if let Some(t) = timeout {
-                    if start.elapsed() >= t && tries >= min_tries {
-                        return Ok(Vec::new());
-                    }
-                }
             }
 
-            if timeout.is_none() && tries >= min_tries {
+            if !ticker.tick().await {
                 return Ok(Vec::new());
-            }
-
-            if let Some(i) = interval {
-                // Next poll is due no earlier than this long after the first poll started.
-                let minimum_elapsed = i * tries;
-
-                // But this much time has elapsed since the first poll started.
-                let actual_elapsed = start.elapsed();
-
-                if actual_elapsed < minimum_elapsed {
-                    // So we need to wait this much longer.
-                    sleep(minimum_elapsed - actual_elapsed).await;
-                }
             }
         }
     }
@@ -420,8 +350,8 @@ impl<'a> ElementQuery<'a> {
     }
 
     /// Set the previous selector to only return the first matched element.
-    /// WARNING: Use with caution! This can result in faster lookups, but will probably break
-    ///          any filters on this selector.
+    /// WARNING: Use with caution! This can result in (slightly) faster lookups, but will probably
+    ///          break any filters on this selector.
     ///
     /// If you are simply want to get the first element after filtering from a list,
     /// use the `first()` method instead.
@@ -498,6 +428,16 @@ impl<'a> ElementQuery<'a> {
         self.with_filter(conditions::element_has_text(text, ignore_errors))
     }
 
+    /// Only match elements that do not have the specified text.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_text<N>(self, text: N) -> Self
+    where
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_lacks_text(text, ignore_errors))
+    }
+
     /// Only match elements that have the specified id.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_id<N>(self, id: N) -> Self
@@ -517,7 +457,26 @@ impl<'a> ElementQuery<'a> {
         }))
     }
 
-    /// Only match elements that have the specified class name.
+    /// Only match elements that do not have the specified id.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_id<N>(self, id: N) -> Self
+    where
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(Box::new(move |elem| {
+            let id = id.clone();
+            Box::pin(async move {
+                match elem.id().await {
+                    Ok(Some(x)) => Ok(!id.is_match(&x)),
+                    Ok(None) => Ok(true),
+                    Err(e) => handle_errors(Err(e), ignore_errors),
+                }
+            })
+        }))
+    }
+
+    /// Only match elements that contain the specified class name.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_class<N>(self, class_name: N) -> Self
     where
@@ -525,6 +484,16 @@ impl<'a> ElementQuery<'a> {
     {
         let ignore_errors = self.ignore_errors;
         self.with_filter(conditions::element_has_class(class_name, ignore_errors))
+    }
+
+    /// Only match elements that do not contain the specified class name.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_class<N>(self, class_name: N) -> Self
+    where
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_lacks_class(class_name, ignore_errors))
     }
 
     /// Only match elements that have the specified tag.
@@ -542,6 +511,21 @@ impl<'a> ElementQuery<'a> {
         }))
     }
 
+    /// Only match elements that do not have the specified tag.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_tag<N>(self, tag_name: N) -> Self
+    where
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(Box::new(move |elem| {
+            let tag_name = tag_name.clone();
+            Box::pin(async move {
+                negate(elem.tag_name().await.map(|x| tag_name.is_match(&x)), ignore_errors)
+            })
+        }))
+    }
+
     /// Only match elements that have the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_value<N>(self, value: N) -> Self
@@ -550,6 +534,16 @@ impl<'a> ElementQuery<'a> {
     {
         let ignore_errors = self.ignore_errors;
         self.with_filter(conditions::element_has_value(value, ignore_errors))
+    }
+
+    /// Only match elements that do not have the specified value.
+    /// See the `Needle` documentation for more details on text matching rules.
+    pub fn without_value<N>(self, value: N) -> Self
+    where
+        N: Needle + Clone + Send + Sync + 'static,
+    {
+        let ignore_errors = self.ignore_errors;
+        self.with_filter(conditions::element_lacks_value(value, ignore_errors))
     }
 
     /// Only match elements that have the specified attribute with the specified value.
@@ -571,14 +565,10 @@ impl<'a> ElementQuery<'a> {
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_attribute(
-            attribute_name,
-            value,
-            ignore_errors,
-        ))
+        self.with_filter(conditions::element_lacks_attribute(attribute_name, value, ignore_errors))
     }
 
-    /// Only match elements that have the specified attributes with the specified values.
+    /// Only match elements that have all of the specified attributes with the specified values.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_attributes<S, N>(self, desired_attributes: &[(S, N)]) -> Self
     where
@@ -589,15 +579,15 @@ impl<'a> ElementQuery<'a> {
         self.with_filter(conditions::element_has_attributes(desired_attributes, ignore_errors))
     }
 
-    /// Only match elements that do not have the specified attributes with the specified values.
-    /// See the `Needle` documentation for more details on text matching rules.
+    /// Only match elements that do not have any of the specified attributes with the specified
+    /// values. See the `Needle` documentation for more details on text matching rules.
     pub fn without_attributes<S, N>(self, desired_attributes: &[(S, N)]) -> Self
     where
         S: Into<String> + Clone,
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_attributes(desired_attributes, ignore_errors))
+        self.with_filter(conditions::element_lacks_attributes(desired_attributes, ignore_errors))
     }
 
     /// Only match elements that have the specified property with the specified value.
@@ -619,10 +609,10 @@ impl<'a> ElementQuery<'a> {
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_property(property_name, value, ignore_errors))
+        self.with_filter(conditions::element_lacks_property(property_name, value, ignore_errors))
     }
 
-    /// Only match elements that have the specified properties with the specified value.
+    /// Only match elements that have all of the specified properties with the specified value.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_properties<S, N>(self, desired_properties: &[(S, N)]) -> Self
     where
@@ -633,15 +623,15 @@ impl<'a> ElementQuery<'a> {
         self.with_filter(conditions::element_has_properties(desired_properties, ignore_errors))
     }
 
-    /// Only match elements that do not have the specified properties with the specified value.
-    /// See the `Needle` documentation for more details on text matching rules.
+    /// Only match elements that do not have any of the specified properties with the specified
+    /// value. See the `Needle` documentation for more details on text matching rules.
     pub fn without_properties<S, N>(self, desired_properties: &[(S, N)]) -> Self
     where
         S: Into<String> + Clone,
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_properties(desired_properties, ignore_errors))
+        self.with_filter(conditions::element_lacks_properties(desired_properties, ignore_errors))
     }
 
     /// Only match elements that have the specified CSS property with the specified value.
@@ -667,14 +657,14 @@ impl<'a> ElementQuery<'a> {
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_css_property(
+        self.with_filter(conditions::element_lacks_css_property(
             css_property_name,
             value,
             ignore_errors,
         ))
     }
 
-    /// Only match elements that have the specified CSS properties with the
+    /// Only match elements that have all of the specified CSS properties with the
     /// specified values.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn with_css_properties<S, N>(self, desired_css_properties: &[(S, N)]) -> Self
@@ -689,7 +679,7 @@ impl<'a> ElementQuery<'a> {
         ))
     }
 
-    /// Only match elements that do not have the specified CSS properties with the
+    /// Only match elements that do not have any of the specified CSS properties with the
     /// specified values.
     /// See the `Needle` documentation for more details on text matching rules.
     pub fn without_css_properties<S, N>(self, desired_css_properties: &[(S, N)]) -> Self
@@ -698,7 +688,7 @@ impl<'a> ElementQuery<'a> {
         N: Needle + Clone + Send + Sync + 'static,
     {
         let ignore_errors = self.ignore_errors;
-        self.with_filter(conditions::element_has_not_css_properties(
+        self.with_filter(conditions::element_lacks_css_properties(
             desired_css_properties,
             ignore_errors,
         ))

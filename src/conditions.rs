@@ -2,7 +2,10 @@ use crate::ElementPredicate;
 use stringmatch::Needle;
 use thirtyfour::error::WebDriverResult;
 
-pub fn handle_errors(result: WebDriverResult<bool>, ignore_errors: bool) -> WebDriverResult<bool> {
+pub(crate) fn handle_errors(
+    result: WebDriverResult<bool>,
+    ignore_errors: bool,
+) -> WebDriverResult<bool> {
     match result {
         Ok(x) => Ok(x),
         Err(e) => {
@@ -15,7 +18,7 @@ pub fn handle_errors(result: WebDriverResult<bool>, ignore_errors: bool) -> WebD
     }
 }
 
-fn negate(result: WebDriverResult<bool>, ignore_errors: bool) -> WebDriverResult<bool> {
+pub(crate) fn negate(result: WebDriverResult<bool>, ignore_errors: bool) -> WebDriverResult<bool> {
     handle_errors(result.map(|x| !x), ignore_errors)
 }
 
@@ -69,6 +72,7 @@ pub fn element_is_not_clickable(ignore_errors: bool) -> ElementPredicate {
 
 /// Predicate that returns true for elements that have the specified class name.
 /// See the `Needle` documentation for more details on text matching rules.
+/// In particular, it is recommended to use StringMatch or Regex to perform a whole-word search.
 pub fn element_has_class<N>(class_name: N, ignore_errors: bool) -> ElementPredicate
 where
     N: Needle + Clone + Send + Sync + 'static,
@@ -79,6 +83,25 @@ where
             match elem.class_name().await {
                 Ok(Some(x)) => Ok(class_name.is_match(&x)),
                 Ok(None) => Ok(false),
+                Err(e) => handle_errors(Err(e), ignore_errors),
+            }
+        })
+    })
+}
+
+/// Predicate that returns true for elements that do not contain the specified class name.
+/// See the `Needle` documentation for more details on text matching rules.
+/// In particular, it is recommended to use StringMatch or Regex to perform a whole-word search.
+pub fn element_lacks_class<N>(class_name: N, ignore_errors: bool) -> ElementPredicate
+where
+    N: Needle + Clone + Send + Sync + 'static,
+{
+    Box::new(move |elem| {
+        let class_name = class_name.clone();
+        Box::pin(async move {
+            match elem.class_name().await {
+                Ok(Some(x)) => Ok(!class_name.is_match(&x)),
+                Ok(None) => Ok(true),
                 Err(e) => handle_errors(Err(e), ignore_errors),
             }
         })
@@ -99,6 +122,18 @@ where
     })
 }
 
+/// Predicate that returns true for elements that do not contain the specified text.
+/// See the `Needle` documentation for more details on text matching rules.
+pub fn element_lacks_text<N>(text: N, ignore_errors: bool) -> ElementPredicate
+where
+    N: Needle + Clone + Send + Sync + 'static,
+{
+    Box::new(move |elem| {
+        let text = text.clone();
+        Box::pin(async move { negate(elem.text().await.map(|x| text.is_match(&x)), ignore_errors) })
+    })
+}
+
 /// Predicate that returns true for elements that have the specified value.
 /// See the `Needle` documentation for more details on text matching rules.
 pub fn element_has_value<N>(value: N, ignore_errors: bool) -> ElementPredicate
@@ -111,6 +146,24 @@ where
             match elem.value().await {
                 Ok(Some(x)) => Ok(value.is_match(&x)),
                 Ok(None) => Ok(false),
+                Err(e) => handle_errors(Err(e), ignore_errors),
+            }
+        })
+    })
+}
+
+/// Predicate that returns true for elements that do not contain the specified value.
+/// See the `Needle` documentation for more details on text matching rules.
+pub fn element_lacks_value<N>(value: N, ignore_errors: bool) -> ElementPredicate
+where
+    N: Needle + Clone + Send + Sync + 'static,
+{
+    Box::new(move |elem| {
+        let value = value.clone();
+        Box::pin(async move {
+            match elem.value().await {
+                Ok(Some(x)) => Ok(!value.is_match(&x)),
+                Ok(None) => Ok(true),
                 Err(e) => handle_errors(Err(e), ignore_errors),
             }
         })
@@ -142,9 +195,9 @@ where
     })
 }
 
-/// Predicate that returns true for elements that do not have the specified attribute with the
+/// Predicate that returns true for elements that lack the specified attribute with the
 /// specified value. See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_attribute<S, N>(
+pub fn element_lacks_attribute<S, N>(
     attribute_name: S,
     value: N,
     ignore_errors: bool,
@@ -167,8 +220,8 @@ where
     })
 }
 
-/// Predicate that returns true for elements that have the specified attributes with the specified
-/// values. See the `Needle` documentation for more details on text matching rules.
+/// Predicate that returns true for elements that have all of the specified attributes with the
+/// specified values. See the `Needle` documentation for more details on text matching rules.
 pub fn element_has_attributes<S, N>(
     desired_attributes: &[(S, N)],
     ignore_errors: bool,
@@ -200,7 +253,7 @@ where
 
 /// Predicate that returns true for elements that do not have any of the specified attributes with
 /// the specified values. See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_attributes<S, N>(
+pub fn element_lacks_attributes<S, N>(
     desired_attributes: &[(S, N)],
     ignore_errors: bool,
 ) -> ElementPredicate
@@ -254,9 +307,9 @@ where
     })
 }
 
-/// Predicate that returns true for elements that do not have the specified property with the
+/// Predicate that returns true for elements that lack the specified property with the
 /// specified value. See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_property<S, N>(
+pub fn element_lacks_property<S, N>(
     property_name: S,
     value: N,
     ignore_errors: bool,
@@ -279,8 +332,8 @@ where
     })
 }
 
-/// Predicate that returns true for elements that have the specified properties with the specified
-/// value. See the `Needle` documentation for more details on text matching rules.
+/// Predicate that returns true for elements that have all of the specified properties with the
+/// specified value. See the `Needle` documentation for more details on text matching rules.
 pub fn element_has_properties<S, N>(
     desired_properties: &[(S, N)],
     ignore_errors: bool,
@@ -310,9 +363,9 @@ where
     })
 }
 
-/// Predicate that returns true for elements that do not have the specified properties with the
-/// specified value. See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_properties<S, N>(
+/// Predicate that returns true for elements that do not have any of the specified properties with
+/// the specified values. See the `Needle` documentation for more details on text matching rules.
+pub fn element_lacks_properties<S, N>(
     desired_properties: &[(S, N)],
     ignore_errors: bool,
 ) -> ElementPredicate
@@ -365,9 +418,9 @@ where
     })
 }
 
-/// Predicate that returns true for elements that do not have the specified CSS property with the
+/// Predicate that returns true for elements that lack the specified CSS property with the
 /// specified value. See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_css_property<S, N>(
+pub fn element_lacks_css_property<S, N>(
     css_property_name: S,
     value: N,
     ignore_errors: bool,
@@ -389,7 +442,7 @@ where
     })
 }
 
-/// Predicate that returns true for elements that have the specified CSS properties with the
+/// Predicate that returns true for elements that have all of the specified CSS properties with the
 /// specified values.
 /// See the `Needle` documentation for more details on text matching rules.
 pub fn element_has_css_properties<S, N>(
@@ -420,10 +473,10 @@ where
     })
 }
 
-/// Predicate that returns true for elements that do not have the specified CSS properties with the
-/// specified values.
+/// Predicate that returns true for elements that do not have any of the specified CSS properties
+/// with the specified values.
 /// See the `Needle` documentation for more details on text matching rules.
-pub fn element_has_not_css_properties<S, N>(
+pub fn element_lacks_css_properties<S, N>(
     desired_css_properties: &[(S, N)],
     ignore_errors: bool,
 ) -> ElementPredicate

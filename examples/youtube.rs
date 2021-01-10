@@ -11,7 +11,6 @@ use stringmatch::StringMatch;
 use thirtyfour::prelude::*;
 use thirtyfour::support::sleep;
 use thirtyfour_query::{ElementPoller, ElementQueryable};
-use tokio;
 use tokio::time::Duration;
 
 #[tokio::main]

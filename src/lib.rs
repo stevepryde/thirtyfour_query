@@ -34,7 +34,7 @@
 //! ```
 //!
 //! Other ElementPoller options are also available, such as NoWait and NumTriesWithInterval.
-//! These can be overridden on a per-query basis as needed.
+//! These can be overridden on a per-query basis if needed.
 //!
 //! Now, using the query interface you can do things like:
 //!
@@ -122,23 +122,56 @@
 //!
 //! Now you can do things like this:
 //! ```ignore
-//! elem.wait("Timed out waiting for element to be displayed").until().displayed().await?;
-//! elem.wait("Timed out waiting for element to disappear").until_not().displayed().await?;
+//! elem.wait_until("Timed out waiting for element to be displayed").displayed().await?;
+//! elem.wait_until("Timed out waiting for element to disappear").not_displayed().await?;
 //!
-//! elem.wait("Timed out waiting for element to become enabled").until().enabled().await?;
-//! elem.wait("Timed out waiting for element to become disabled").until_not().enabled().await?;
+//! elem.wait_until("Timed out waiting for element to become enabled").enabled().await?;
+//! elem.wait_until("Timed out waiting for element to become clickable").clickable().await?;
 //! ```
 //!
-//! And so on, including `selected()` and `stale()`.
+//! And so on. See the `ElementWaiter` docs for the full list of predicates available.
 //!
 //! ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
 //! and return a `WebDriverResult<bool>`.
 //!
+//! A range of pre-defined predicates are supplied for convenience in the
+//! `thirtyfour_query::conditions` module.
+//!
+//! ```ignore
+//! use thirtyfour_query::conditions;
+//!
+//! elem.wait_until("Timed out waiting for element to be displayed and clickable").conditions(vec![
+//!     conditions::element_is_displayed(true),
+//!     conditions::element_is_clickable(true)
+//! ]).await?;
+//! ```
+//! Take a look at the `conditions` module for the full list of predicates available.
+//! NOTE: Predicates require you to specify whether or not errors should be ignored.
+//!
+//! These predicates (or your own) can also be supplied as filters to `ElementQuery`.
+//!
+
 pub mod conditions;
+mod poller;
 mod query;
 mod waiter;
+pub use poller::*;
 pub use query::*;
 pub use waiter::*;
 
+use futures::Future;
+use std::pin::Pin;
 /// This is a re-export of stringmatch::StringMatch.
 pub use stringmatch::StringMatch;
+use thirtyfour::prelude::WebDriverResult;
+use thirtyfour::WebElement;
+
+/// Function signature for element predicates.
+pub type ElementPredicate = Box<
+    dyn for<'a> Fn(
+            &'a WebElement<'a>,
+        ) -> Pin<Box<dyn Future<Output = WebDriverResult<bool>> + Send + 'a>>
+        + Send
+        + Sync
+        + 'static,
+>;
