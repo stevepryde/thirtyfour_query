@@ -134,7 +134,7 @@
 //! ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
 //! and return a `WebDriverResult<bool>`.
 //!
-//! A range of pre-defined predicates are supplied for convenience in the
+//! A range of pre-defined predicates are also supplied for convenience in the
 //! `thirtyfour_query::conditions` module.
 //!
 //! ```ignore

@@ -70,17 +70,34 @@ driver.config_mut().set("ElementPoller", poller)?;
 
 Now you can do things like this:
 ```rust
-elem.wait("Timed out waiting for element to be displayed").until().displayed().await?;
-elem.wait("Timed out waiting for element to disappear").until_not().displayed().await?;
+elem.wait_until("Timed out waiting for element to be displayed").displayed().await?;
+elem.wait_until("Timed out waiting for element to disappear").not_displayed().await?;
 
-elem.wait("Timed out waiting for element to become enabled").until().enabled().await?;
-elem.wait("Timed out waiting for element to become disabled").until_not().enabled().await?;
+elem.wait_until("Timed out waiting for element to become enabled").enabled().await?;
+elem.wait_until("Timed out waiting for element to become clickable").clickable().await?;
 ```
 
-And so on, including `selected()` and `stale()`.
+And so on. See the `ElementWaiter` docs for the full list of predicates available.
 
 ElementWaiter also allows the user of custom predicates that take a `&WebElement` argument
 and return a `WebDriverResult<bool>`.
+
+A range of pre-defined predicates are also supplied for convenience in the
+`thirtyfour_query::conditions` module.
+
+```rust
+use thirtyfour_query::conditions;
+
+elem.wait_until("Timed out waiting for element to be displayed and clickable").conditions(vec![
+    conditions::element_is_displayed(true),
+    conditions::element_is_clickable(true)
+]).await?;
+```
+
+Take a look at the `conditions` module for the full list of predicates available.
+NOTE: Predicates require you to specify whether or not errors should be ignored.
+
+These predicates (or your own) can also be supplied as filters to `ElementQuery`.
 
 ## LICENSE
 
