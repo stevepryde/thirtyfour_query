@@ -1,6 +1,10 @@
 Advanced element query/polling interfaces for the thirtyfour crate.
 
-**NOTE**: This crate has now been merged with `thirtyfour`. Please update to `thirfyfour` v0.25.0 or later.
+# Deprecated
+
+![maintenance-status](https://img.shields.io/badge/maintenance-deprecated-red.svg)
+
+**NOTE**: This crate has now been merged with `thirtyfour`. Please update to `thirfyfour` directly.
 
 ## LICENSE
 
